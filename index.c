@@ -135,11 +135,46 @@ int index_status(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_load(Index *index) {
-    // TODO: Implement index loading
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+    index->count = 0;
+    FILE* iptr = fopen(".pes/index", "r");
+    if (iptr == NULL) return 0;
+
+    char line[1024];
+    char hex_hash[HASH_HEX_SIZE + 1];
+
+    while (fgets(line, sizeof(line), iptr)) {
+        if (index->count >= MAX_INDEX_ENTRIES) break;
+        IndexEntry *entry = &index->entries[index->count];
+
+        // 1. Explicitly clear the entry memory to avoid garbage bits
+        memset(entry, 0, sizeof(IndexEntry));
+
+        // 2. Parse into temp variables first
+        unsigned int m;
+        uint64_t mt;
+        uint32_t sz;
+        
+        if (sscanf(line, "%o %64s %" SCNu64 " %u %511s", 
+                   &m, hex_hash, &mt, &sz, entry->path) == 5) {
+            
+            entry->mode = m;
+            entry->mtime_sec = mt;
+            entry->size = sz;
+
+            // 3. Convert hex to binary struct
+            if (hex_to_hash(hex_hash, &entry->hash) != 0) continue;
+
+            // DEBUG PRINT: Let's see what the tree builder sees
+            /*printf("DEBUG: Loaded %s, Hash: %02x%02x, Mode: %o\n", 
+                   entry->path, entry->hash.hash[0], entry->hash.hash[1], entry->mode);*/
+
+            index->count++;
+        }
+    }
+    fclose(iptr);
+    return 0; 
 }
+
 
 // Save the index to .pes/index atomically.
 //
