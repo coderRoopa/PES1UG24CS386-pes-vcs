@@ -129,9 +129,65 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
-int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
-}
+static int write_tree_recursive(const IndexEntry *entries, int count, const char *prefix, ObjectID *id_out) {
+    Tree tree;
+    tree.count = 0;
+    int prefix_len = strlen(prefix);
+
+    for (int i = 0; i < count; ) {
+        const IndexEntry *entry = &entries[i];
+        
+        // Ensure the entry actually belongs to this prefix
+        if (strncmp(entry->path, prefix, prefix_len) != 0) {
+            i++;
+            continue;
+        }
+
+        // Look at the part of the path after the current prefix
+        const char *rel_path = entry->path + prefix_len;
+        const char *slash = strchr(rel_path, '/');
+
+        if (slash == NULL) {
+            // CASE 1: It's a file in the current directory
+            if (tree.count >= MAX_TREE_ENTRIES) return -1;
+
+            TreeEntry *te = &tree.entries[tree.count++];
+            te->mode = entry->mode;
+            te->hash = entry->hash;
+            strncpy(te->name, rel_path, sizeof(te->name) - 1);
+            
+            i++; // Move to next index entry
+        } else {
+            // CASE 2: It's a subdirectory
+            if (tree.count >= MAX_TREE_ENTRIES) return -1;
+
+            // Extract the directory name (e.g., "src" from "src/main.c")
+            char dir_name[256] = {0};
+            size_t dir_name_len = slash - rel_path;
+            strncpy(dir_name, rel_path, dir_name_len);
+
+            // Construct the new prefix for recursion (e.g., "src/")
+            char next_prefix[512];
+            snprintf(next_prefix, sizeof(next_prefix), "%s%s/", prefix, dir_name);
+
+            // Find how many entries fall under this subdirectory
+            // Since the index is sorted, they are all contiguous
+            int sub_count = 0;
+            while (i + sub_count < count && 
+                   strncmp(entries[i + sub_count].path, next_prefix, strlen(next_prefix)) == 0) {
+                sub_count++;
+            }
+
+            // Recurse to build the subtree for this directory
+            TreeEntry *te = &tree.entries[tree.count++];
+            te->mode = MODE_DIR;
+            strncpy(te->name, dir_name, sizeof(te->name) - 1);
+            te->name[sizeof(te->name) - 1] = '\0'; // Manually ensure termination
+            if (write_tree_recursive(entries + i, sub_count, next_prefix, &te->hash) != 0) {
+                return -1;
+            }
+
+            // Skip all the index entries we just processed in the recursion
+            i += sub_count;
+        }
+    }
