@@ -210,13 +210,25 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     } else {
         commit.has_parent = 0;
     }
-      // 2. Read current HEAD to get the parent commit hash
-    // If head_read returns 0, we have a parent. If not, it's the first commit.
-    if (head_read(&commit.parent) == 0) {
-        commit.has_parent = 1;
-    } else {
-        commit.has_parent = 0;
+        // 3. Fill in metadata
+    // pes_author() is a helper from pes.h that reads the environment variable
+    snprintf(commit.author, sizeof(commit.author), "%s", pes_author());
+    commit.timestamp = (uint64_t)time(NULL);
+    snprintf(commit.message, sizeof(commit.message), "%s", message);
+    
+      // 4. Serialize the Commit struct into the text format
+    void *data = NULL;
+    size_t len = 0;
+    if (commit_serialize(&commit, &data, &len) != 0) {
+        return -1;
     }
+
+    // 5. Write the commit object to the store
+    if (object_write(OBJ_COMMIT, data, len, commit_id_out) != 0) {
+        free(data);
+        return -1;
+    }
+    free(data); // Free the buffer allocated by serialize
 
 
 }
