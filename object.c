@@ -93,10 +93,90 @@ int object_exists(const ObjectID *id) {
 
 //
 // Returns 0 on success, -1 on error.
+const char* type_to_string(ObjectType type) {
+    switch (type) {
+        case OBJ_BLOB:   return "blob";
+        case OBJ_TREE:   return "tree";
+        case OBJ_COMMIT: return "commit";
+        default:         return "unknown";
+    }
+}
+
+//
+// Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
+    // 1. Build the header
+    const char *type_str;
+    switch (type) {
+        case OBJ_BLOB:   type_str = "blob";   break;
+        case OBJ_TREE:   type_str = "tree";   break;
+        case OBJ_COMMIT: type_str = "commit"; break;
+        default: return -1;
+    }
+
+    char header[64];
+    int header_len = sprintf(header, "%s %zu", type_str, len);
+    
+    // 2. Build the full object (header + null byte + data)
+    size_t full_size = header_len + 1 + len;
+    uint8_t *full_buf = malloc(full_size);
+    if (!full_buf) return -1;
+
+    memcpy(full_buf, header, header_len + 1);
+    memcpy(full_buf + header_len + 1, data, len);
+
+    // 3. Compute hash and check for deduplication
+    compute_hash(full_buf, full_size, id_out);
+    if (object_exists(id_out)) {
+        free(full_buf);
+        return 0;
+    }
+
+    // 4. Get final path and ensure shard directory exists
+    char final_path[512];
+    object_path(id_out, final_path, sizeof(final_path));
+    
+    char path_copy[512];
+    strncpy(path_copy, final_path, sizeof(path_copy));
+    char *dir_name = dirname(path_copy);
+    mkdir(dir_name, 0755);
+
+    // 5. Write to a temporary file
+    char temp_path[512];
+    snprintf(temp_path, sizeof(temp_path), "%s/tmp_XXXXXX", dir_name);
+    int fd = mkstemp(temp_path);
+    if (fd < 0) {
+        free(full_buf);
+        return -1;
+    }
+
+    if (write(fd, full_buf, full_size) != (ssize_t)full_size) {
+        close(fd);
+        unlink(temp_path);
+        free(full_buf);
+        return -1;
+    }
+
+    // 6. Persist to disk
+    fsync(fd);
+    close(fd);
+
+    // 7. Atomic move
+    if (rename(temp_path, final_path) != 0) {
+        unlink(temp_path);
+        free(full_buf);
+        return -1;
+    }
+
+    // 8. Sync directory
+    int dfd = open(dir_name, O_RDONLY);
+    if (dfd >= 0) {
+        fsync(dfd);
+        close(dfd);
+    }
+
+    free(full_buf);
+    return 0;
 }
 
 // Read an object from the store.
