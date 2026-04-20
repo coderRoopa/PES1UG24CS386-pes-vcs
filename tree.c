@@ -207,3 +207,20 @@ static int write_tree_recursive(const IndexEntry *entries, int count, const char
     free(tree_data);
     return 0;
 }
+int tree_from_index(ObjectID *id_out) {
+    Index index = {0};
+    
+   // 1. Load the index from .pes/index
+    if (index_load(&index) != 0) {
+        fprintf(stderr, "Error: Could not load index\n");
+        return -1;
+    }
+
+    if (index.count == 0) {
+        // Technically an empty tree is valid, but usually signifies an error in this context
+        return -1;
+    }
+
+    // 2. Start the recursive tree building from the root (empty prefix)
+    return write_tree_recursive(index.entries, index.count, "", id_out);
+}
