@@ -203,4 +203,12 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
         fprintf(stderr, "error: failed to create tree from index\n");
         return -1;
     }
+      // 2. Read current HEAD to get the parent commit hash
+    // If head_read returns 0, we have a parent. If not, it's the first commit.
+    if (head_read(&commit.parent) == 0) {
+        commit.has_parent = 1;
+    } else {
+        commit.has_parent = 0;
+    }
+
 }
