@@ -191,3 +191,19 @@ static int write_tree_recursive(const IndexEntry *entries, int count, const char
             i += sub_count;
         }
     }
+    // After gathering all entries for this level, write the tree object
+    void *tree_data = NULL;
+    size_t tree_len = 0;
+    
+    if (tree_serialize(&tree, &tree_data, &tree_len) != 0) {
+        return -1;
+    }
+
+    if (object_write(OBJ_TREE, tree_data, tree_len, id_out) != 0) {
+        free(tree_data);
+        return -1;
+    }
+
+    free(tree_data);
+    return 0;
+}
