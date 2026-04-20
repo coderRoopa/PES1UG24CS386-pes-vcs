@@ -190,10 +190,41 @@ int compare_entries(const void *a, const void *b) {
     return strcmp(((IndexEntry*)a)->path, ((IndexEntry*)b)->path);
 }
 int index_save(const Index *index) {
-    // TODO: Implement atomic index saving
-    // (See Lab Appendix for logical steps)
-    (void)index;
-    return -1;
+    // 1. Sort the entries (cast to non-const for sorting if allowed, 
+    // or sort a copy if the project rules are strict)
+    qsort((void*)index->entries, index->count, sizeof(IndexEntry), compare_entries);
+
+    // 2. Open a TEMPORARY file
+    FILE* f = fopen(".pes/index.tmp", "w");
+    if (f == NULL) return 0;
+
+    // 3. Write each entry
+    for (int i = 0; i < index->count; i++) {
+        const IndexEntry *entry = &index->entries[i];
+        char hex[65];
+        hash_to_hex(&entry->hash, hex); // Note: correct arguments
+
+        // No '&' before entry->mode, etc.
+        fprintf(f, "%o %s %" PRIu64 " %u %s\n", 
+        entry->mode, 
+        hex, 
+        entry->mtime_sec, 
+        entry->size, 
+        entry->path); 
+    }
+
+    // 4. Ensure data is actually on the disk (Atomic steps)
+    fflush(f);
+    fsync(fileno(f)); 
+    fclose(f);
+
+    // 5. Swap the temp file with the real index
+    if (rename(".pes/index.tmp", ".pes/index") != 0) {
+        perror("Failed to rename index");
+        return -1;
+    }
+
+    return 0;
 }
 
 // Stage a file for the next commit.
