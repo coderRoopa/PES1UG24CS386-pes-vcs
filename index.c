@@ -237,8 +237,54 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+    // 1. Get file metadata (size, mode, mtime)
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        perror("stat");
+        return -1;
+    }
+
+    // 2. Read the file content into a buffer
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    void *data = malloc(st.st_size);
+    if (fread(data, 1, st.st_size, f) != (size_t)st.st_size) {
+        free(data);
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    // 3. THE LOGIC YOU ASKED ABOUT:
+    // Write the buffer to .pes/objects and get the new hash
+    ObjectID new_hash;
+    if (object_write(OBJ_BLOB, data, st.st_size, &new_hash) == 0) {
+        // Find if this path is already in the index
+        IndexEntry *entry = index_find(index, path);
+        
+        // If not found, create a new entry at the end of the array
+        if (!entry) {
+            if (index->count >= MAX_INDEX_ENTRIES) {
+                free(data);
+                return -1; 
+            }
+            entry = &index->entries[index->count++];
+            strncpy(entry->path, path, sizeof(entry->path) - 1);
+        }
+        
+        // Update the entry with the metadata and the new hash
+        // Since ObjectID is a struct, we can use direct assignment (=)
+        entry->hash = new_hash; 
+        entry->mode = st.st_mode;
+        entry->mtime_sec = (uint64_t)st.st_mtime;
+        entry->size = (uint32_t)st.st_size;
+    } else {
+        free(data);
+        return -1;
+    }
+
+    free(data);
+
+    // 4. Save the index to disk so the changes persist
+    return index_save(index);
 }
